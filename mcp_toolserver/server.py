@@ -147,11 +147,24 @@ def dispatch(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         raise ToolError(f"invalid arguments for {name!r}: {exc}") from exc
 
 
+def _describe(tool_name: str) -> str:
+    """Look up the hand-written description for a tool."""
+    for spec in TOOL_SCHEMAS:
+        if spec["name"] == tool_name:
+            return spec["description"]
+    raise KeyError(tool_name)  # pragma: no cover - guarded by a schema test
+
+
 def build_server():
-    """Construct the MCP server. Imported lazily so tests need no SDK."""
+    """Construct the MCP server. The SDK is imported lazily so the tool
+    logic and its tests stay runnable without it installed.
+
+    Each tool is registered as a typed function: the SDK derives the JSON
+    Schema from the annotations, and the hand-written descriptions in
+    ``TOOL_SCHEMAS`` supply the prose the model reads when choosing a tool.
+    """
     try:
-        from mcp.server import Server
-        from mcp.types import TextContent, Tool
+        from mcp.server import MCPServer
     except ImportError as exc:  # pragma: no cover - depends on optional extra
         raise RuntimeError(
             "The MCP SDK is not installed. Install it with:\n"
@@ -159,45 +172,44 @@ def build_server():
             "The tool logic and its tests run without it."
         ) from exc
 
-    server = Server(SERVER_NAME)
+    server = MCPServer(name=SERVER_NAME, version=SERVER_VERSION)
 
-    @server.list_tools()
-    async def list_tools() -> List[Tool]:
-        return [
-            Tool(
-                name=spec["name"],
-                description=spec["description"],
-                inputSchema=spec["inputSchema"],
-            )
-            for spec in TOOL_SCHEMAS
-        ]
-
-    @server.call_tool()
-    async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
+    def _result(name: str, **kwargs: Any) -> str:
+        """Dispatch and serialize, turning ToolError into a model-readable
+        message rather than letting it surface as a transport failure."""
         try:
-            result = dispatch(name, arguments or {})
+            payload = dispatch(name, kwargs)
         except ToolError as exc:
-            # isError keeps the model in the loop: it sees a correctable
-            # message instead of the conversation failing.
-            return [TextContent(type="text", text=f"Error: {exc}")]
-        return [TextContent(type="text", text=json.dumps(result, indent=2, ensure_ascii=False))]
+            return f"Error: {exc}"
+        return json.dumps(payload, indent=2, ensure_ascii=False)
+
+    @server.tool(name="search_documents", description=_describe("search_documents"))
+    def search_documents_tool(query: str, limit: int = 3, team: str = "") -> str:
+        return _result(
+            "search_documents",
+            query=query,
+            limit=limit,
+            **({"team": team} if team else {}),
+        )
+
+    @server.tool(name="fetch_document", description=_describe("fetch_document"))
+    def fetch_document_tool(document_id: str) -> str:
+        return _result("fetch_document", document_id=document_id)
+
+    @server.tool(name="calculate", description=_describe("calculate"))
+    def calculate_tool(expression: str) -> str:
+        return _result("calculate", expression=expression)
+
+    @server.tool(name="date_difference", description=_describe("date_difference"))
+    def date_difference_tool(start: str, end: str) -> str:
+        return _result("date_difference", start=start, end=end)
 
     return server
 
 
-async def run_stdio() -> None:  # pragma: no cover - requires a live MCP client
-    """Serve over stdio, the transport Claude Desktop uses."""
-    from mcp.server.stdio import stdio_server
-
-    server = build_server()
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(read_stream, write_stream, server.create_initialization_options())
-
-
 def main() -> None:  # pragma: no cover - process entry point
-    import asyncio
-
-    asyncio.run(run_stdio())
+    """Serve over stdio, the transport Claude Desktop uses."""
+    build_server().run(transport="stdio")
 
 
 if __name__ == "__main__":  # pragma: no cover

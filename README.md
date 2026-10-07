@@ -67,8 +67,8 @@ dispatch("calculate", {"expr": "2+2"})
 
 A model that receives *"known teams are: engineering, people, sales,
 support"* fixes its next call. A model that receives a stack trace retries
-the same mistake, or gives up and invents an answer. The tool call is
-returned with `isError` set rather than throwing, so the conversation
+the same mistake, or gives up and invents an answer. The protocol layer
+returns the message as tool output rather than raising, so the conversation
 continues instead of failing.
 
 ### 2. The calculator is a sandbox, not an `eval`
@@ -124,7 +124,7 @@ system prompt, and it is right where the model is looking.
 ```
 mcp_toolserver/
   tools.py     # pure functions, zero MCP imports — all the logic lives here
-  server.py    # schemas, dispatch, ToolError -> protocol error. Thin.
+  server.py    # schemas, dispatch, ToolError -> model-readable output. Thin.
 ```
 
 `tools.py` imports nothing from the MCP SDK, which is why the test suite runs
@@ -150,9 +150,13 @@ every validation branch, five sandbox-escape attempts, leap-year date
 handling, dispatch with wrong and missing arguments, and a schema
 completeness check.
 
-CI runs the suite on Python 3.10/3.11/3.12, then installs the real MCP SDK
-and builds the server — so an SDK breaking change shows up in a build rather
-than in someone's Claude Desktop config.
+CI runs the suite on Python 3.10/3.11/3.12, then installs the real MCP SDK,
+builds the server, asserts the registered tool names match the declared
+schemas, and makes a live call through the protocol layer — including a
+failing one, to confirm errors come back readable rather than as a crash.
+
+That job earned its place: the first version of this server was written
+against an older SDK decorator API and CI caught it on the first push.
 
 ## Why this exists
 

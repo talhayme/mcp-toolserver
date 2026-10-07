@@ -37,12 +37,31 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[mcp,dev]"
-      - name: Build the server and list its tools
+      - name: Build the server and exercise it over the real SDK
         run: |
           python -c "
+          import asyncio
           from mcp_toolserver.server import build_server, TOOL_SCHEMAS
-          build_server()
-          print(f'Server built. {len(TOOL_SCHEMAS)} tools registered:')
-          for s in TOOL_SCHEMAS:
-              print('  -', s['name'])
+
+          server = build_server()
+          tools = asyncio.run(server.list_tools())
+          names = sorted(t.name for t in tools)
+          expected = sorted(s['name'] for s in TOOL_SCHEMAS)
+          assert names == expected, f'tool names drifted: {names} != {expected}'
+
+          # Every registered tool must carry the hand-written description the
+          # model reads when choosing between them.
+          for tool in tools:
+              assert tool.description, f'{tool.name} lost its description'
+
+          # A real call through the protocol layer, not just construction.
+          result = asyncio.run(server.call_tool('calculate', {'expression': '6 * 7'}))
+          text = result.content[0].text
+          assert '42' in text, f'unexpected tool output: {text}'
+
+          # A failure path must come back as a readable message, not a crash.
+          bad = asyncio.run(server.call_tool('calculate', {'expression': 'open(1)'}))
+          assert 'Error:' in bad.content[0].text, bad.content[0].text
+
+          print(f'OK: {len(tools)} tools registered and callable:', ', '.join(names))
           "
