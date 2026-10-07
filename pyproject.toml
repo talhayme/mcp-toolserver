@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mcp-toolserver"
+version = "0.1.0"
+description = "A production-shaped MCP server: strict schemas, model-readable errors, a sandboxed calculator and a grounded document search"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Vitalii Bogachev" }]
+keywords = ["mcp", "model-context-protocol", "llm", "tool-calling", "claude", "anthropic"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+]
+dependencies = []
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.0"]
+dev = ["pytest>=7", "pytest-cov>=4"]
+
+[project.scripts]
+mcp-toolserver = "mcp_toolserver.server:main"
+
+[tool.setuptools.packages.find]
+include = ["mcp_toolserver*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

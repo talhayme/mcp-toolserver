@@ -1,0 +1,48 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Tests
+        run: pytest tests/ -q --cov=mcp_toolserver --cov-report=term-missing
+
+  protocol:
+    # Installs the real MCP SDK and builds the server, so a breaking SDK
+    # change surfaces here rather than in someone's Claude Desktop config.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install with the MCP SDK
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[mcp,dev]"
+      - name: Build the server and list its tools
+        run: |
+          python -c "
+          from mcp_toolserver.server import build_server, TOOL_SCHEMAS
+          build_server()
+          print(f'Server built. {len(TOOL_SCHEMAS)} tools registered:')
+          for s in TOOL_SCHEMAS:
+              print('  -', s['name'])
+          "
